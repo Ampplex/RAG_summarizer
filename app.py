@@ -20,43 +20,42 @@ def get_context(vectordb, query="summarize"):
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
     docs = retriever.get_relevant_documents(query)
     context = "\n\n".join(doc.page_content for doc in docs)
-    return context[:3000]  # Keep it short
+    return context[:3000]
 
 def summarize(context):
-    tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-    model = AutoModelForCausalLM.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    model_name = "microsoft/DialoGPT-medium"  # Better than TinyLlama
+    # Alternative: "facebook/bart-large-cnn" (but larger)
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
     
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    prompt = f"""<|system|>
-You are a helpful assistant that writes clear, concise summaries. Write in complete sentences about the main ideas.
-<|user|>
-Please summarize the key points from this text in 2-3 sentences:
-
-{context}
-<|assistant|>
-The main points are: """
+    # Simple, direct prompt
+    prompt = f"Summarize in 2-3 sentences: {context[:1000]}\n\nSummary:"
     
-    inputs = tokenizer(prompt, return_tensors="pt", max_length=1500, truncation=True)
+    inputs = tokenizer.encode(prompt, return_tensors="pt", max_length=1024, truncation=True)
     
     with torch.no_grad():
         outputs = model.generate(
-            **inputs, 
-            max_new_tokens=200, 
+            inputs,
+            max_new_tokens=150,
             temperature=0.3,
             do_sample=True,
-            top_p=0.9,
-            repetition_penalty=1.1
+            pad_token_id=tokenizer.pad_token_id,
+            repetition_penalty=1.2
         )
     
     result = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    if "<|assistant|>" in result:
-        summary = result.split("<|assistant|>")[-1].strip()
-    else:
-        summary = result.split("The main points are:")[-1].strip()
     
-    return summary
+    # Extract only the new part
+    if "Summary:" in result:
+        summary = result.split("Summary:")[-1].strip()
+    else:
+        summary = result[len(prompt):].strip()
+    
+    return summary if summary else "Could not generate summary"
 
 def main():
     pdf_path = "attention_is_all_you_need.pdf"  # Change this
