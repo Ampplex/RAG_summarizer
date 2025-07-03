@@ -60,19 +60,19 @@ Summary:"""
 
 # Main flow
 def run_pdf_rag(pdf_path):
-    print("📄 Loading PDF...")
+    print("Loading PDF...")
     docs = load_and_split_pdf(pdf_path)
 
-    print("🔐 Creating vector store...")
+    print("Creating vector store...")
     vectordb = embed_and_store_chunks(docs)
 
-    print("🔎 Retrieving relevant chunks...")
+    print("Retrieving relevant chunks...")
     context = retrieve_context(vectordb, "Summarize this PDF")
 
-    print("🧠 Generating summary locally...")
+    print("Generating summary locally...")
     summary = summarize_locally(context)
 
-    print("\n📌 Summary:\n")
+    print("\nSummary:\n")
     print(summary)
 
 if __name__ == "__main__":
