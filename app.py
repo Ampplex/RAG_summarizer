@@ -23,7 +23,7 @@ def get_context(vectordb, query="summarize"):
     return context[:3000]
 
 def summarize(context):
-    model_name = "microsoft/DialoGPT-medium"  # Better than TinyLlama
+    model_name = "sshleifer/distilbart-cnn-12-6"  # Better than TinyLlama
     # Alternative: "facebook/bart-large-cnn" (but larger)
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
