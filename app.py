@@ -20,12 +20,10 @@ def embed_and_store_chunks(docs):
     vectordb.persist()
     return vectordb
 
-# Retrieve top-k relevant chunks, truncate to safe size
-def retrieve_context(db, query, k=5, max_chars=3000):
+# Retrieve top-k relevant chunks
+def retrieve_chunks(db, query, k=5):
     retriever = db.as_retriever(search_kwargs={"k": k})
-    docs = retriever.get_relevant_documents(query)
-    combined = "\n\n".join(doc.page_content for doc in docs)
-    return combined[:max_chars]  # truncate context safely
+    return retriever.get_relevant_documents(query)
 
 # Post-process summary to reduce repetition
 def clean_summary(summary: str) -> str:
@@ -33,24 +31,49 @@ def clean_summary(summary: str) -> str:
     summary = re.sub(r'\s+', ' ', summary).strip()
     return summary
 
-# Local summarizer using TinyLlama
-def summarize_locally(context, query="Summarize this PDF"):
+# Load model and tokenizer once
+def load_local_model():
     model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         device_map="auto",
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
     )
+    return model, tokenizer
 
-    # Updated instruction for better summarization
-    prompt = f"""You are an expert in NLP. Summarize the key ideas across the following passage from a research paper. Avoid repeating paper titles. Group related concepts and focus on clarity and brevity.
+# Summarize a single chunk
+def summarize_chunk(text, model, tokenizer):
+    prompt = f"""You are an expert in NLP. Summarize the following technical passage clearly and briefly:
 
-Passage:
-{context}
+{text}
 
 Summary:"""
+
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    summary = decoded.split("Summary:")[-1].strip()
+    return clean_summary(summary)
+
+# Reduce step – summarize combined summaries
+def summarize_summaries(summaries, model, tokenizer):
+    joined = "\n".join(f"- {s}" for s in summaries)
+    prompt = f"""Combine the following bullet-point summaries into one concise and cohesive summary of the paper:
+
+{joined}
+
+Final Summary:"""
 
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
 
@@ -64,10 +87,9 @@ Summary:"""
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    raw_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    summary = raw_output.split("Summary:")[-1].strip()
-
-    return clean_summary(summary)  # Cleaned version
+    decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    final_summary = decoded.split("Final Summary:")[-1].strip()
+    return clean_summary(final_summary)
 
 # Main flow
 def run_pdf_rag(pdf_path):
@@ -78,13 +100,22 @@ def run_pdf_rag(pdf_path):
     vectordb = embed_and_store_chunks(docs)
 
     print("Retrieving relevant chunks...")
-    context = retrieve_context(vectordb, "Summarize this PDF")
+    relevant_docs = retrieve_chunks(vectordb, "Summarize this PDF", k=5)
 
-    print("Generating summary locally...")
-    summary = summarize_locally(context)
+    print("Loading model...")
+    model, tokenizer = load_local_model()
 
-    print("\n📌 Summary:\n")
-    print(summary)
+    print("Summarizing each chunk (map step)...")
+    summaries = []
+    for doc in relevant_docs:
+        chunk_summary = summarize_chunk(doc.page_content[:1500], model, tokenizer)
+        summaries.append(chunk_summary)
+
+    print("Reducing summaries into final summary...")
+    final_summary = summarize_summaries(summaries, model, tokenizer)
+
+    print("\nSummary:\n")
+    print(final_summary)
 
 if __name__ == "__main__":
     run_pdf_rag("attention_is_all_you_need.pdf")  # Replace with your file
