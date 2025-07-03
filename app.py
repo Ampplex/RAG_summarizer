@@ -32,7 +32,6 @@ def summarize(context):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Simple, direct prompt
     prompt = f"Summarize in 2-3 sentences: {context[:1000]}\n\nSummary:"
     
     inputs = tokenizer.encode(prompt, return_tensors="pt", max_length=1024, truncation=True)
