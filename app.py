@@ -20,7 +20,7 @@ def get_context(vectordb, query="summarize"):
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
     docs = retriever.get_relevant_documents(query)
     context = "\n\n".join(doc.page_content for doc in docs)
-    return context[:3000]
+    return context[:3000]  # Keep it short
 
 def summarize(context):
     tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
@@ -29,14 +29,33 @@ def summarize(context):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    prompt = f"Summarize this text:\n{context}\n\nSummary:"
-    inputs = tokenizer(prompt, return_tensors="pt", max_length=2048, truncation=True)
+    prompt = f"""<|system|>
+You are a helpful assistant that writes clear, concise summaries. Write in complete sentences about the main ideas.
+<|user|>
+Please summarize the key points from this text in 2-3 sentences:
+
+{context}
+<|assistant|>
+The main points are: """
+    
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1500, truncation=True)
     
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=300, temperature=0.7)
+        outputs = model.generate(
+            **inputs, 
+            max_new_tokens=200, 
+            temperature=0.3,
+            do_sample=True,
+            top_p=0.9,
+            repetition_penalty=1.1
+        )
     
     result = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    summary = result.split("Summary:")[-1].strip()
+    if "<|assistant|>" in result:
+        summary = result.split("<|assistant|>")[-1].strip()
+    else:
+        summary = result.split("The main points are:")[-1].strip()
+    
     return summary
 
 def main():
