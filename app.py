@@ -4,6 +4,7 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import re
 
 # Load and split PDF
 def load_and_split_pdf(pdf_path):
@@ -26,6 +27,12 @@ def retrieve_context(db, query, k=5, max_chars=3000):
     combined = "\n\n".join(doc.page_content for doc in docs)
     return combined[:max_chars]  # truncate context safely
 
+# Post-process summary to reduce repetition
+def clean_summary(summary: str) -> str:
+    summary = re.sub(r'\b(The|This) research paper\b', '', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\s+', ' ', summary).strip()
+    return summary
+
 # Local summarizer using TinyLlama
 def summarize_locally(context, query="Summarize this PDF"):
     model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
@@ -37,7 +44,8 @@ def summarize_locally(context, query="Summarize this PDF"):
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
     )
 
-    prompt = f"""Below is a passage from a research paper. Summarize it briefly and clearly.
+    # Updated instruction for better summarization
+    prompt = f"""You are an expert in NLP. Summarize the key ideas across the following passage from a research paper. Avoid repeating paper titles. Group related concepts and focus on clarity and brevity.
 
 Passage:
 {context}
@@ -56,7 +64,10 @@ Summary:"""
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    return tokenizer.decode(outputs[0], skip_special_tokens=True).split("Summary:")[-1].strip()
+    raw_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    summary = raw_output.split("Summary:")[-1].strip()
+
+    return clean_summary(summary)  # Cleaned version
 
 # Main flow
 def run_pdf_rag(pdf_path):
@@ -72,8 +83,8 @@ def run_pdf_rag(pdf_path):
     print("Generating summary locally...")
     summary = summarize_locally(context)
 
-    print("\nSummary:\n")
+    print("\n📌 Summary:\n")
     print(summary)
 
 if __name__ == "__main__":
-    run_pdf_rag("attention_is_all_you_need.pdf")
+    run_pdf_rag("attention_is_all_you_need.pdf")  # Replace with your file
